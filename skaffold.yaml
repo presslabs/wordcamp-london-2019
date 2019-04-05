@@ -1,0 +1,29 @@
+apiVersion: skaffold/v1beta7
+kind: Config
+build:
+  artifacts:
+  - image: quay.io/presslabs/wclondon-2019
+deploy:
+  helm:
+    releases:
+    - name: dev-wclondon-2019
+      chartPath: chart/wordpress-site
+      values:
+        image: quay.io/presslabs/wclondon-2019
+      setValues:
+        site.domains[0]: wclondon-2019.localstack.pl
+      skipBuildDependencies: false
+      imageStrategy:
+        helm: {}
+profiles:
+  - name: production
+    activation:
+      - command: deploy
+        kubeContext: gke_calins-ureactor_europe-west2_wclondon-2019
+    patches:
+      - op: replace
+        path: /deploy/helm/releases/0/name
+        value: wclondon-2019
+      - op: replace
+        path: /deploy/helm/releases/0/setValues/site.domains[0]
+        value: wclondon-2019.presslabs.me
