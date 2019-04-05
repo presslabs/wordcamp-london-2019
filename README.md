@@ -1,68 +1,173 @@
-# [Bedrock](https://roots.io/bedrock/)
-[![Packagist](https://img.shields.io/packagist/v/roots/bedrock.svg?style=flat-square)](https://packagist.org/packages/roots/bedrock)
-[![Build Status](https://img.shields.io/travis/roots/bedrock.svg?style=flat-square)](https://travis-ci.org/roots/bedrock)
+# WordCamp London 2019 Demo
 
-Bedrock is a modern WordPress stack that helps you get started with the best development tools and project structure.
+## Presequisites
 
-Much of the philosophy behind Bedrock is inspired by the [Twelve-Factor App](http://12factor.net/) methodology including the [WordPress specific version](https://roots.io/twelve-factor-wordpress/).
+#### Two kubernetes clusters:
+1. A local kubernetes cluster for local development (eg. Docker for Desktop)
+2. A remote kubernetes for production (eg. Google Kubernetes Engine)
 
-## Features
+#### Local toolchain:
+1. PHP >= 7.2
+2. [composer](https://getcomposer.org)
+3. [wp-cli](https://wp-cli.org)
+4. [helm](https://helm.sh)
+5. [skafofld](https://skaffold.dev)
 
-* Better folder structure
-* Dependency management with [Composer](https://getcomposer.org)
-* Easy WordPress configuration with environment specific files
-* Environment variables with [Dotenv](https://github.com/vlucas/phpdotenv)
-* Autoloader for mu-plugins (use regular plugins as mu-plugins)
-* Enhanced security (separated web root and secure passwords with [wp-password-bcrypt](https://github.com/roots/wp-password-bcrypt))
+## Step 1a: Install stack on the local cluster
 
-## Requirements
+#### Install helm's tiller
+```console
+$ kubectl --namespace kube-system create sa tiller
 
-* PHP >= 7.1
-* Composer - [Install](https://getcomposer.org/doc/00-intro.md#installation-linux-unix-osx)
+$ kubectl create clusterrolebinding tiller \
+    --clusterrole cluster-admin \
+    --serviceaccount=kube-system:tiller
 
-## Installation
+$ helm init --service-account tiller \
+    --history-max 10 \
+    --override 'spec.template.spec.containers[0].command'='{/tiller,--storage=secret}' \
+    --wait
+```
 
-1. Create a new project:
-    ```sh
-    $ composer create-project roots/bedrock
-    ```
-2. Update environment variables in the `.env` file:
-  * Database variables
-    * `DB_NAME` - Database name
-    * `DB_USER` - Database user
-    * `DB_PASSWORD` - Database password
-    * `DB_HOST` - Database host
-    * Optionally, you can define `DATABASE_URL` for using a DSN instead of using the variables above (e.g. `mysql://user:password@127.0.0.1:3306/db_name`)
-  * `WP_ENV` - Set to environment (`development`, `staging`, `production`)
-  * `WP_HOME` - Full URL to WordPress home (https://example.com)
-  * `WP_SITEURL` - Full URL to WordPress including subdirectory (https://example.com/wp)
-  * `AUTH_KEY`, `SECURE_AUTH_KEY`, `LOGGED_IN_KEY`, `NONCE_KEY`, `AUTH_SALT`, `SECURE_AUTH_SALT`, `LOGGED_IN_SALT`, `NONCE_SALT`
-    * Generate with [wp-cli-dotenv-command](https://github.com/aaemnnosttv/wp-cli-dotenv-command)
-    * Generate with [our WordPress salts generator](https://roots.io/salts.html)
-3. Add theme(s) in `web/app/themes/` as you would for a normal WordPress site
-4. Set the document root on your webserver to Bedrock's `web` folder: `/path/to/site/web/`
-5. Access WordPress admin at `https://example.com/wp/wp-admin/`
+#### Install the Presslabs Stack on the local cluster
+```console
+$ kubectl create ns presslabs-stack
 
-## Documentation
+$ kubectl label namespace presslabs-stack certmanager.k8s.io/disable-validation=true
 
-Bedrock documentation is available at [https://roots.io/bedrock/docs/](https://roots.io/bedrock/docs/).
+$ helm repo add presslabs https://presslabs.github.io/charts
 
-## Contributing
+$ helm repo update
 
-Contributions are welcome from everyone. We have [contributing guidelines](https://github.com/roots/guidelines/blob/master/CONTRIBUTING.md) to help you get started.
+$ helm install -n stack presslabs/stack --namespace presslabs-stack \
+    -f https://raw.githubusercontent.com/presslabs/stack/master/presets/minikube.yaml
+```
 
-## Bedrock sponsors
+#### Wait for the stack to come online
+For that you need to run:
 
-Help support our open-source development efforts by [becoming a patron](https://www.patreon.com/rootsdev).
+```
+$ kubectl -n presslabs-stack get pod
+```
 
-<a href="https://kinsta.com/?kaid=OFDHAJIXUDIV"><img src="https://cdn.roots.io/app/uploads/kinsta.svg" alt="Kinsta" width="200" height="150"></a> <a href="https://k-m.com/"><img src="https://cdn.roots.io/app/uploads/km-digital.svg" alt="KM Digital" width="200" height="150"></a> <a href="https://www.itineris.co.uk/"><img src="https://cdn.roots.io/app/uploads/itineris.svg" alt="itineris" width="200" height="150"></a>
+And wait until all pods status is either `Running` or `Completed`.
 
-## Community
+## Step 1b: Create the production cluster and install the Presslabs Stack on it
 
-Keep track of development and community news.
+#### Create the cluster and worker node pools get the cluster credentials
+```console
+$ gcloud container clusters create --region=europe-west2 \
+    --node-locations europe-west2-a,europe-west2-b \
+    --machine-type=n1-standard-2 --num-nodes 1 \
+    --node-labels=node-role.kubernetes.io/presslabs-sys= \
+    --node-taints=CriticalAddonsOnly=true:PreferNoSchedule \
+    --enable-ip-alias wclondon-2019
 
-* Participate on the [Roots Discourse](https://discourse.roots.io/)
-* Follow [@rootswp on Twitter](https://twitter.com/rootswp)
-* Read and subscribe to the [Roots Blog](https://roots.io/blog/)
-* Subscribe to the [Roots Newsletter](https://roots.io/subscribe/)
-* Listen to the [Roots Radio podcast](https://roots.io/podcast/)
+$ gcloud container node-pools create stack-workers-1 --cluster=wclondon-2019 --region=europe-west2 \
+    --machine-type=n1-standard-2 --num-nodes 1 \
+    --node-labels=node-role.kubernetes.io/wordpress=,node-role.kubernetes.io/database=
+
+$ gcloud container clusters get-credentials --region europe-west2 wclondon-2019
+```
+
+### Make sure that your kubeconfig context is the one from production cluster
+```console
+$ kubectl config get-contexts
+```
+
+## Step 1c: Install the stack onto the production cluster
+#### Install helm's tiller
+```console
+$ kubectl --namespace kube-system create sa tiller
+
+$ kubectl create clusterrolebinding tiller \
+    --clusterrole cluster-admin \
+    --serviceaccount=kube-system:tiller
+
+$ helm init --service-account tiller \
+    --history-max 10 \
+    --override 'spec.template.spec.containers[0].command'='{/tiller,--storage=secret}' \
+    --wait
+```
+
+#### Install the Presslabs Stack
+```console
+$ kubectl create ns presslabs-stack
+
+$ kubectl label namespace presslabs-stack certmanager.k8s.io/disable-validation=true
+
+$ helm repo add presslabs https://presslabs.github.io/charts
+
+$ helm repo update
+
+$ helm install -n stack presslabs/stack --namespace presslabs-stack \
+    --set letsencrypt.enabled=true,letsencrypt.email=YOUR_LETS_ENCRYPT_ACCOUNT_EMAIL
+    -f https://raw.githubusercontent.com/presslabs/stack/master/presets/gke.yaml
+```
+
+#### Wait for the stack to come online
+For that you need to run:
+
+```
+$ kubectl -n presslabs-stack get pod
+```
+
+And wait until all pods status is either `Running` or `Completed`.
+
+#### Switch the context back to the Docker for Desktop cluster
+```console
+$ kubectl config use-context docker-desktop
+```
+
+## Step 2: Create a roots.io Bedrock project
+
+#### Create the project
+```console
+$ composer create-project roots/bedrock wclondon-2019
+
+$ cd wclondon-2019
+```
+
+#### Use the Presslabs Stack WordPress Runtime
+```console
+composer remove roots/wordpress
+composer require presslabs-stack/wordpress ^5.1
+```
+
+Before proceeding make note of:
+1. The docker repository you are going to publish images to
+2. Make note of you production cluster context
+
+``` Console
+wp stack init
+```
+
+#### Initialize git for version control
+```console
+git init
+git add .
+git commit -m "Initial commit"
+```
+
+## Step 3: Install some plugins
+```console
+composer require wpackagist-plugin/debug-bar rarst/laps
+```
+
+## Step 4: Launch the local dev environment
+```console
+skaffold dev
+```
+
+## Step 5: Deploy the container to production
+
+**Important** You need to switch to the production kubernetes context (the one
+from step 2) before deploying.
+
+
+```console
+kubectl config use-context MY_PROD_CONTEXT
+
+skaffold deploy
+```
+
