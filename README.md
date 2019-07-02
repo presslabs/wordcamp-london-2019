@@ -131,8 +131,8 @@ $ cd wclondon-2019
 #### Use the Presslabs Stack WordPress Runtime
 ```console
 composer remove roots/wordpress
-composer require presslabs-stack/wordpress ^5.1
-docker pull quay.io/presslabs/wordpress-runtime:5.1-latest
+composer require presslabs-stack/wordpress ^5.2
+docker pull quay.io/presslabs/wordpress-runtime:5.2-7.3.4-latest
 ```
 
 Before proceeding make note of:
