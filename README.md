@@ -1,6 +1,6 @@
 # WordCamp London 2019 Demo
 
-## Presequisites
+## Prerequisites
 
 #### Two kubernetes clusters:
 1. A local kubernetes cluster for local development (eg. Docker for Desktop)
@@ -132,6 +132,7 @@ $ cd wclondon-2019
 ```console
 composer remove roots/wordpress
 composer require presslabs-stack/wordpress ^5.1
+docker pull quay.io/presslabs/wordpress-runtime:5.1-latest
 ```
 
 Before proceeding make note of:
